@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import {
   Search,
@@ -65,11 +65,19 @@ interface Props {
 
 export default function UserManagementClient({ users: initialUsers, plans }: Props) {
   const supabase = createClient()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const [users, setUsers] = useState<User[]>(initialUsers)
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'directory'>('overview')
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [genderFilter, setGenderFilter] = useState<string>('all')
   const [planFilter, setPlanFilter] = useState<string>('all')
+  const [sortBy, setSortBy] = useState<'created_at' | 'name' | 'score' | 'active'>('created_at')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -87,16 +95,17 @@ export default function UserManagementClient({ users: initialUsers, plans }: Pro
     setTimeout(() => setToast(null), 3000)
   }
 
-  // Filtering logic
+
+  // Filtering and sorting logic
   const filteredUsers = useMemo(() => {
-    return users.filter(u => {
+    const list = users.filter(u => {
       const term = searchTerm.toLowerCase()
       const matchesSearch = !term ||
-        u.first_name.toLowerCase().includes(term) ||
-        u.last_name.toLowerCase().includes(term) ||
-        u.profile_id.toLowerCase().includes(term) ||
-        u.email.toLowerCase().includes(term) ||
-        u.mobile_number.includes(term)
+        (u.first_name && u.first_name.toLowerCase().includes(term)) ||
+        (u.last_name && u.last_name.toLowerCase().includes(term)) ||
+        (u.profile_id && u.profile_id.toLowerCase().includes(term)) ||
+        (u.email && u.email.toLowerCase().includes(term)) ||
+        (u.mobile_number && u.mobile_number.includes(term))
 
       const matchesStatus = statusFilter === 'all' || u.account_status === statusFilter
       const matchesGender = genderFilter === 'all' || u.gender === genderFilter
@@ -107,7 +116,25 @@ export default function UserManagementClient({ users: initialUsers, plans }: Pro
 
       return matchesSearch && matchesStatus && matchesGender && matchesPlan
     })
-  }, [users, searchTerm, statusFilter, genderFilter, planFilter])
+
+    return list.sort((a, b) => {
+      let comparison = 0
+      if (sortBy === 'created_at') {
+        comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      } else if (sortBy === 'name') {
+        const nameA = `${a.first_name || ''} ${a.last_name || ''}`.trim()
+        const nameB = `${b.first_name || ''} ${b.last_name || ''}`.trim()
+        comparison = nameA.localeCompare(nameB)
+      } else if (sortBy === 'score') {
+        comparison = (a.profile_completion_score || 0) - (b.profile_completion_score || 0)
+      } else if (sortBy === 'active') {
+        const timeA = a.last_active_at ? new Date(a.last_active_at).getTime() : 0
+        const timeB = b.last_active_at ? new Date(b.last_active_at).getTime() : 0
+        comparison = timeA - timeB
+      }
+      return sortOrder === 'desc' ? -comparison : comparison
+    })
+  }, [users, searchTerm, statusFilter, genderFilter, planFilter, sortBy, sortOrder])
 
   const totalPages = Math.max(1, Math.ceil(filteredUsers.length / pageSize))
   const paginatedUsers = filteredUsers.slice((currentPage - 1) * pageSize, currentPage * pageSize)
@@ -272,6 +299,15 @@ export default function UserManagementClient({ users: initialUsers, plans }: Pro
     return Math.floor(diff / (365.25 * 24 * 60 * 60 * 1000))
   }
 
+  if (!mounted) {
+    return (
+      <div className="space-y-6 animate-pulse">
+        <div className="h-16 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm" />
+        <div className="h-80 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm" />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Toast */}
@@ -284,184 +320,453 @@ export default function UserManagementClient({ users: initialUsers, plans }: Pro
         </div>
       )}
 
-      {/* Search + Filters + Export */}
-      <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center flex-1 w-full">
-          {/* Search */}
-          <div className="relative flex-1 w-full sm:max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-            <input
-              type="text"
-              placeholder="Search by name, ID, email, mobile..."
-              value={searchTerm}
-              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1) }}
-              className="w-full h-10 pl-10 pr-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all"
-            />
-          </div>
-
-          {/* Filter Buttons */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-1.5 text-xs">
-              <Filter className="w-3.5 h-3.5 text-zinc-400" />
-            </div>
-            <select
-              value={statusFilter}
-              onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1) }}
-              className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-            >
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="pending_profile">Pending Profile</option>
-              <option value="inactive">Inactive</option>
-              <option value="suspended">Suspended</option>
-              <option value="deleted">Deleted</option>
-              <option value="banned">Banned</option>
-            </select>
-            <select
-              value={genderFilter}
-              onChange={(e) => { setGenderFilter(e.target.value); setCurrentPage(1) }}
-              className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-            >
-              <option value="all">All Gender</option>
-              <option value="male">Male</option>
-              <option value="female">Female</option>
-            </select>
-            <select
-              value={planFilter}
-              onChange={(e) => { setPlanFilter(e.target.value); setCurrentPage(1) }}
-              className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-            >
-              <option value="all">All Plans</option>
-              <option value="free">Free</option>
-              <option value="premium">Any Premium</option>
-              <option value="silver">Silver</option>
-              <option value="gold">Gold</option>
-              <option value="platinum">Platinum</option>
-            </select>
-          </div>
-        </div>
-
+      {/* Tab Switcher */}
+      <div className="flex gap-2 border-b border-zinc-200 dark:border-zinc-800 pb-1">
         <button
-          onClick={exportCSV}
-          className="flex items-center gap-2 h-10 px-4 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-semibold hover:opacity-90 cursor-pointer transition-all shadow-sm"
+          onClick={() => { setActiveSubTab('overview'); setCurrentPage(1); }}
+          className={`px-4 py-2.5 rounded-t-xl text-sm font-semibold border-b-2 transition-all cursor-pointer ${
+            activeSubTab === 'overview'
+              ? 'border-rose-600 text-rose-600'
+              : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-white'
+          }`}
         >
-          <Download className="w-4 h-4" />
-          Export CSV
+          Members Dashboard
+        </button>
+        <button
+          onClick={() => { setActiveSubTab('directory'); setCurrentPage(1); }}
+          className={`px-4 py-2.5 rounded-t-xl text-sm font-semibold border-b-2 transition-all cursor-pointer ${
+            activeSubTab === 'directory'
+              ? 'border-rose-600 text-rose-600'
+              : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-white'
+          }`}
+        >
+          All Registered Directory (Full Details)
         </button>
       </div>
 
-      {/* Results Count */}
-      <div className="text-xs font-semibold text-zinc-400">
-        Showing {paginatedUsers.length} of {filteredUsers.length} members
-      </div>
+      {activeSubTab === 'overview' ? (
+        <div className="space-y-6">
+          {/* Search + Filters + Export */}
+          <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center flex-1 w-full">
+              {/* Search */}
+              <div className="relative flex-1 w-full sm:max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <input
+                  type="text"
+                  placeholder="Search by name, ID, email, mobile..."
+                  value={searchTerm}
+                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1) }}
+                  className="w-full h-10 pl-10 pr-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all"
+                />
+              </div>
 
-      {/* Users Table */}
-      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950">
-                <th className="text-left px-4 py-3 text-xs font-bold text-zinc-400 uppercase tracking-widest">Member</th>
-                <th className="text-left px-4 py-3 text-xs font-bold text-zinc-400 uppercase tracking-widest">Profile ID</th>
-                <th className="text-left px-4 py-3 text-xs font-bold text-zinc-400 uppercase tracking-widest">Location</th>
-                <th className="text-left px-4 py-3 text-xs font-bold text-zinc-400 uppercase tracking-widest">Plan</th>
-                <th className="text-left px-4 py-3 text-xs font-bold text-zinc-400 uppercase tracking-widest">Status</th>
-                <th className="text-left px-4 py-3 text-xs font-bold text-zinc-400 uppercase tracking-widest">Joined</th>
-                <th className="text-center px-4 py-3 text-xs font-bold text-zinc-400 uppercase tracking-widest">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedUsers.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="text-center py-12 text-zinc-400">No members found matching your filters</td>
-                </tr>
-              ) : (
-                paginatedUsers.map((u) => (
-                  <tr key={u.id} className="border-b border-zinc-100 dark:border-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-950/50 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-rose-100 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center justify-center font-bold text-xs shrink-0">
-                          {u.first_name.charAt(0)}{u.last_name.charAt(0)}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-zinc-900 dark:text-white truncate">{u.first_name} {u.last_name}</p>
-                          <p className="text-xs text-zinc-400 truncate">{u.email}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-zinc-500">{u.profile_id}</td>
-                    <td className="px-4 py-3 text-xs text-zinc-500">{u.district_name ?? u.city_name ?? '—'}</td>
-                    <td className="px-4 py-3">
-                      {u.is_premium ? (
-                        <span className="text-[10px] font-bold uppercase bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 px-1.5 py-0.5 rounded">
-                          {u.premium_plan_code}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-bold uppercase bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400 px-1.5 py-0.5 rounded">Free</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${getStatusBadge(u.account_status)}`}>
-                        {u.account_status.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-zinc-500">{formatDate(u.created_at)}</td>
-                    <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => setSelectedUser(u)}
-                        className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
-                        title="View Details"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-zinc-400">
-            Page {currentPage} of {totalPages}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 disabled:opacity-30 hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-              const pageNum = Math.max(1, Math.min(currentPage - 2, totalPages - 4)) + i
-              if (pageNum > totalPages) return null
-              return (
-                <button
-                  key={pageNum}
-                  onClick={() => setCurrentPage(pageNum)}
-                  className={`w-9 h-9 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
-                    pageNum === currentPage
-                      ? 'bg-rose-600 text-white'
-                      : 'border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900'
-                  }`}
+              {/* Filter Buttons */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 text-xs">
+                  <Filter className="w-3.5 h-3.5 text-zinc-400" />
+                </div>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1) }}
+                  className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20"
                 >
-                  {pageNum}
-                </button>
-              )
-            })}
+                  <option value="all">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="pending_profile">Pending Profile</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="deleted">Deleted</option>
+                  <option value="banned">Banned</option>
+                </select>
+                <select
+                  value={genderFilter}
+                  onChange={(e) => { setGenderFilter(e.target.value); setCurrentPage(1) }}
+                  className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                >
+                  <option value="all">All Gender</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                </select>
+                <select
+                  value={planFilter}
+                  onChange={(e) => { setPlanFilter(e.target.value); setCurrentPage(1) }}
+                  className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                >
+                  <option value="all">All Plans</option>
+                  <option value="free">Free</option>
+                  <option value="premium">Any Premium</option>
+                  <option value="silver">Silver</option>
+                  <option value="gold">Gold</option>
+                  <option value="platinum">Platinum</option>
+                </select>
+                <select
+                  value={`${sortBy}-${sortOrder}`}
+                  onChange={(e) => {
+                    const [field, order] = e.target.value.split('-')
+                    setSortBy(field as any)
+                    setSortOrder(order as any)
+                    setCurrentPage(1)
+                  }}
+                  className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                >
+                  <option value="created_at-desc">Joined (Newest)</option>
+                  <option value="created_at-asc">Joined (Oldest)</option>
+                  <option value="name-asc">Name (A-Z)</option>
+                  <option value="name-desc">Name (Z-A)</option>
+                  <option value="score-desc">Completion % (Highest)</option>
+                  <option value="score-asc">Completion % (Lowest)</option>
+                  <option value="active-desc">Recently Active</option>
+                </select>
+              </div>
+            </div>
+
             <button
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 disabled:opacity-30 hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer transition-colors"
+              onClick={exportCSV}
+              className="flex items-center gap-2 h-10 px-4 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-semibold hover:opacity-90 cursor-pointer transition-all shadow-sm"
             >
-              <ChevronRight className="w-4 h-4" />
+              <Download className="w-4 h-4" />
+              Export CSV
             </button>
           </div>
+
+          {/* Results Count */}
+          <div className="text-xs font-semibold text-zinc-400">
+            Showing {paginatedUsers.length} of {filteredUsers.length} members
+          </div>
+
+          {/* Users Table */}
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950">
+                    <th className="text-left px-4 py-3 text-xs font-bold text-zinc-400 uppercase tracking-widest">Member</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-zinc-400 uppercase tracking-widest">Profile ID</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-zinc-400 uppercase tracking-widest">Location</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-zinc-400 uppercase tracking-widest">Plan</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-zinc-400 uppercase tracking-widest">Status</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-zinc-400 uppercase tracking-widest">Joined</th>
+                    <th className="text-center px-4 py-3 text-xs font-bold text-zinc-400 uppercase tracking-widest">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="text-center py-12 text-zinc-400">No members found matching your filters</td>
+                    </tr>
+                  ) : (
+                    paginatedUsers.map((u) => (
+                      <tr key={u.id} className="border-b border-zinc-100 dark:border-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-950/50 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-rose-100 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center justify-center font-bold text-xs shrink-0">
+                              {u.first_name.charAt(0)}{u.last_name.charAt(0)}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-zinc-900 dark:text-white truncate">{u.first_name} {u.last_name}</p>
+                              <p className="text-xs text-zinc-400 truncate">{u.email}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-zinc-500">{u.profile_id}</td>
+                        <td className="px-4 py-3 text-xs text-zinc-500">{u.district_name ?? u.city_name ?? '—'}</td>
+                        <td className="px-4 py-3">
+                          {u.is_premium ? (
+                            <span className="text-[10px] font-bold uppercase bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 px-1.5 py-0.5 rounded">
+                              {u.premium_plan_code}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold uppercase bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400 px-1.5 py-0.5 rounded">Free</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${getStatusBadge(u.account_status)}`}>
+                            {u.account_status.replace('_', ' ')}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-zinc-500">{formatDate(u.created_at)}</td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            onClick={() => setSelectedUser(u)}
+                            className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
+                            title="View Details"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-zinc-400">
+                Page {currentPage} of {totalPages}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 disabled:opacity-30 hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  const pageNum = Math.max(1, Math.min(currentPage - 2, totalPages - 4)) + i
+                  if (pageNum > totalPages) return null
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`w-9 h-9 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                        pageNum === currentPage
+                          ? 'bg-rose-600 text-white'
+                          : 'border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  )
+                })}
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 disabled:opacity-30 hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Directory Toolbar */}
+          <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm">
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center flex-1 w-full">
+              {/* Search */}
+              <div className="relative flex-1 w-full sm:max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <input
+                  type="text"
+                  placeholder="Search registered user details directory..."
+                  value={searchTerm}
+                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1) }}
+                  className="w-full h-10 pl-10 pr-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all"
+                />
+              </div>
+
+              {/* Filters */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1) }}
+                  className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                >
+                  <option value="all">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="pending_profile">Pending Profile</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="deleted">Deleted</option>
+                  <option value="banned">Banned</option>
+                </select>
+                <select
+                  value={genderFilter}
+                  onChange={(e) => { setGenderFilter(e.target.value); setCurrentPage(1) }}
+                  className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                >
+                  <option value="all">All Gender</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                </select>
+                <select
+                  value={planFilter}
+                  onChange={(e) => { setPlanFilter(e.target.value); setCurrentPage(1) }}
+                  className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                >
+                  <option value="all">All Plans</option>
+                  <option value="free">Free</option>
+                  <option value="premium">Any Premium</option>
+                  <option value="silver">Silver</option>
+                  <option value="gold">Gold</option>
+                  <option value="platinum">Platinum</option>
+                </select>
+                <select
+                  value={`${sortBy}-${sortOrder}`}
+                  onChange={(e) => {
+                    const [field, order] = e.target.value.split('-')
+                    setSortBy(field as any)
+                    setSortOrder(order as any)
+                    setCurrentPage(1)
+                  }}
+                  className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                >
+                  <option value="created_at-desc">Joined (Newest)</option>
+                  <option value="created_at-asc">Joined (Oldest)</option>
+                  <option value="name-asc">Name (A-Z)</option>
+                  <option value="name-desc">Name (Z-A)</option>
+                  <option value="score-desc">Completion % (Highest)</option>
+                  <option value="score-asc">Completion % (Lowest)</option>
+                  <option value="active-desc">Recently Active</option>
+                </select>
+              </div>
+            </div>
+
+            <button
+              onClick={exportCSV}
+              className="flex items-center gap-2 h-10 px-4 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-semibold hover:opacity-90 cursor-pointer transition-all shadow-sm"
+            >
+              <Download className="w-4 h-4" /> Export CSV
+            </button>
+          </div>
+
+          {/* Directory Count */}
+          <div className="text-xs font-semibold text-zinc-400">
+            Showing {paginatedUsers.length} of {filteredUsers.length} directory records
+          </div>
+
+          {/* Directory Grid */}
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left border-collapse whitespace-nowrap">
+                <thead>
+                  <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
+                    <th className="py-3 px-4">Member</th>
+                    <th className="py-3 px-4">Profile ID</th>
+                    <th className="py-3 px-4">Email</th>
+                    <th className="py-3 px-4">Mobile</th>
+                    <th className="py-3 px-4">Gender</th>
+                    <th className="py-3 px-4">DOB (Age)</th>
+                    <th className="py-3 px-4">District</th>
+                    <th className="py-3 px-4">City</th>
+                    <th className="py-3 px-4">Verified</th>
+                    <th className="py-3 px-4">Score</th>
+                    <th className="py-3 px-4">Plan</th>
+                    <th className="py-3 px-4">Expires</th>
+                    <th className="py-3 px-4">Last Login</th>
+                    <th className="py-3 px-4">Joined</th>
+                    <th className="py-3 px-4 text-center">Status</th>
+                    <th className="py-3 px-4 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-150 dark:divide-zinc-850">
+                  {paginatedUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={16} className="text-center py-12 text-zinc-400 font-semibold">No directory records found.</td>
+                    </tr>
+                  ) : (
+                    paginatedUsers.map(u => (
+                      <tr key={u.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-950/20 transition-colors">
+                        <td className="py-3 px-4 font-semibold text-zinc-900 dark:text-white">
+                          {u.first_name} {u.last_name}
+                        </td>
+                        <td className="py-3 px-4 font-mono font-medium">{u.profile_id}</td>
+                        <td className="py-3 px-4 text-zinc-500">{u.email}</td>
+                        <td className="py-3 px-4 text-zinc-500 font-mono">{u.mobile_number}</td>
+                        <td className="py-3 px-4 capitalize text-zinc-550">{u.gender}</td>
+                        <td className="py-3 px-4 text-zinc-500">
+                          {formatDate(u.date_of_birth)} ({calculateAge(u.date_of_birth)} yrs)
+                        </td>
+                        <td className="py-3 px-4 text-zinc-550">{u.district_name ?? '—'}</td>
+                        <td className="py-3 px-4 text-zinc-550">{u.city_name ?? '—'}</td>
+                        <td className="py-3 px-4">
+                          <div className="flex gap-1.5">
+                            <span className={`px-1.5 py-0.2 rounded-[4px] text-[9px] font-bold ${
+                              u.is_mobile_verified ? 'bg-green-50 text-green-700' : 'bg-zinc-100 text-zinc-400'
+                            }`}>SMS</span>
+                            <span className={`px-1.5 py-0.2 rounded-[4px] text-[9px] font-bold ${
+                              u.is_email_verified ? 'bg-blue-50 text-blue-700' : 'bg-zinc-100 text-zinc-400'
+                            }`}>Email</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 font-extrabold text-rose-500 font-mono">
+                          {u.profile_completion_score}%
+                        </td>
+                        <td className="py-3 px-4">
+                          {u.is_premium ? (
+                            <span className="text-[10px] font-bold uppercase bg-amber-50 border border-amber-250 text-amber-800 px-1.5 py-0.2 rounded">
+                              {u.premium_plan_code}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold bg-zinc-50 text-zinc-500 px-1.5 py-0.2 rounded">Free</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-zinc-500 font-mono">
+                          {u.is_premium && u.premium_expires_at ? formatDate(u.premium_expires_at) : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-zinc-500">
+                          {formatDateTime(u.last_login_at)}
+                        </td>
+                        <td className="py-3 px-4 text-zinc-550">{formatDate(u.created_at)}</td>
+                        <td className="py-3 px-4 text-center">
+                          <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${getStatusBadge(u.account_status)}`}>
+                            {u.account_status.replace('_', ' ')}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            onClick={() => setSelectedUser(u)}
+                            className="p-1 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 text-zinc-400 hover:text-rose-500 cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Directory Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-zinc-400">
+                Page {currentPage} of {totalPages}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 disabled:opacity-30 hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  const pageNum = Math.max(1, Math.min(currentPage - 2, totalPages - 4)) + i
+                  if (pageNum > totalPages) return null
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`w-9 h-9 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                        pageNum === currentPage
+                          ? 'bg-rose-600 text-white'
+                          : 'border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  )
+                })}
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 disabled:opacity-30 hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

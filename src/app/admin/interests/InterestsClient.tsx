@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import {
   Heart,
@@ -50,7 +50,14 @@ interface Props {
 
 export default function InterestsClient({ initialInterests }: Props) {
   const supabase = createClient()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const [interests, setInterests] = useState<Interest[]>(initialInterests)
+
+
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -214,6 +221,14 @@ export default function InterestsClient({ initialInterests }: Props) {
       return matchesSearch && matchesStatus
     })
   }, [interests, searchQuery, statusFilter])
+  if (!mounted) {
+    return (
+      <div className="space-y-6 animate-pulse">
+        <div className="h-28 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm" />
+        <div className="h-64 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm" />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

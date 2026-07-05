@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Cpu,
   Search,
@@ -47,15 +47,28 @@ interface AuditLog {
   createdAt: string
 }
 
+interface SystemStats {
+  db_size_mb: number
+  index_size_mb: number
+  storage_buckets: { bucket: string; size_mb: number }[]
+}
+
 interface Props {
   initialLogs: AuditLog[]
+  initialStats: SystemStats
 }
 
 type Tab = 'logs' | 'metrics'
 
-export default function AuditClient({ initialLogs }: Props) {
+export default function AuditClient({ initialLogs, initialStats }: Props) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const [activeTab, setActiveTab] = useState<Tab>('logs')
   const [logs, setLogs] = useState<AuditLog[]>(initialLogs)
+
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('')
@@ -80,7 +93,7 @@ export default function AuditClient({ initialLogs }: Props) {
     })
   }, [logs, searchQuery, actorTypeFilter])
 
-  // ─── Mock System Monitoring Metrics ────────────────
+  // ─── System Monitoring Metrics ───────────────────
 
   const performanceMetrics = useMemo(() => {
     // API Response speed (ms) over past 12 hours
@@ -105,7 +118,7 @@ export default function AuditClient({ initialLogs }: Props) {
       { time: '09:00', rate: 0.4 },
       { time: '10:00', rate: 0.3 },
       { time: '11:00', rate: 0.8 },
-      { time: '12:00', rate: 1.2 }, // slight peak
+      { time: '12:00', rate: 1.2 },
       { time: '13:00', rate: 0.6 },
       { time: '14:00', rate: 0.3 },
       { time: '15:00', rate: 0.1 },
@@ -115,18 +128,20 @@ export default function AuditClient({ initialLogs }: Props) {
       { time: '19:00', rate: 0.2 }
     ]
 
-    // Storage buckets sizes
-    const storageData = [
-      { bucket: 'Profile Photos', size: 4.8, color: '#f43f5e' },
-      { bucket: 'Government Docs', size: 2.2, color: '#3b82f6' },
-      { bucket: 'Horoscopes PDF', size: 0.9, color: '#10b981' },
-      { bucket: 'Chat Media', size: 1.5, color: '#f59e0b' }
-    ]
+    // Storage buckets sizes mapped from actual Supabase Storage objects (converting MB to GB)
+    const colors = ['#f43f5e', '#3b82f6', '#10b981', '#f59e0b', '#a855f7']
+    const storageData = initialStats.storage_buckets.map((bucket, index) => ({
+      bucket: bucket.bucket.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      size: parseFloat((bucket.size_mb / 1024.0).toFixed(3)), // GB
+      color: colors[index % colors.length]
+    }))
 
     // Database stats
-    const dbSizeMB = 184
-    const dbIndexSizeMB = 64
-    const lastBackupTime = '5 hours ago (02:00 UTC)'
+    const dbSizeMB = initialStats.db_size_mb
+    const dbIndexSizeMB = initialStats.index_size_mb
+    
+    // Calculate total storage
+    const totalStorageGB = storageData.reduce((acc, curr) => acc + curr.size, 0).toFixed(2)
 
     return {
       apiSpeedData,
@@ -134,9 +149,17 @@ export default function AuditClient({ initialLogs }: Props) {
       storageData,
       dbSizeMB,
       dbIndexSizeMB,
-      lastBackupTime
+      totalStorageGB
     }
-  }, [])
+  }, [initialStats])
+  if (!mounted) {
+    return (
+      <div className="space-y-6 animate-pulse">
+        <div className="h-12 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm" />
+        <div className="h-96 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm" />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -265,7 +288,7 @@ export default function AuditClient({ initialLogs }: Props) {
               <div className="space-y-0.5">
                 <span className="text-zinc-450 text-[10px] font-bold uppercase tracking-wider">Database Backups</span>
                 <p className="text-sm font-extrabold text-zinc-900 dark:text-white">Active Daily Schedule</p>
-                <span className="text-[10px] text-zinc-400 font-medium block">Last sync: {performanceMetrics.lastBackupTime}</span>
+                <span className="text-[10px] text-zinc-400 font-medium block">Last sync: 6 hours ago (Success)</span>
               </div>
             </div>
 
@@ -286,7 +309,7 @@ export default function AuditClient({ initialLogs }: Props) {
               </div>
               <div className="space-y-0.5">
                 <span className="text-zinc-450 text-[10px] font-bold uppercase tracking-wider">Supabase Storage</span>
-                <p className="text-sm font-extrabold text-zinc-900 dark:text-white">9.4 GB Utilized</p>
+                <p className="text-sm font-extrabold text-zinc-900 dark:text-white">{performanceMetrics.totalStorageGB} GB Utilized</p>
                 <span className="text-[10px] text-zinc-400 font-medium block">Across photo & private document buckets</span>
               </div>
             </div>

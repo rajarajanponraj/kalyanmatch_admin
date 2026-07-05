@@ -56,6 +56,9 @@ export default async function AuditPage() {
     createdAt: l.created_at
   }))
 
+  // 5. Fetch real-time DB and storage stats
+  const { data: dbStats } = await supabase.rpc('get_system_stats')
+
   return (
     <div className="space-y-6">
       <div className="border-b border-zinc-200 dark:border-zinc-800 pb-5">
@@ -64,7 +67,10 @@ export default async function AuditPage() {
           Review secure admin activity trails, inspect API speeds, and monitor storage utilization.
         </p>
       </div>
-      <AuditClient initialLogs={normalizedLogs} />
+      <AuditClient
+        initialLogs={normalizedLogs}
+        initialStats={dbStats ?? { db_size_mb: 0, index_size_mb: 0, storage_buckets: [] }}
+      />
     </div>
   )
 }

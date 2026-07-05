@@ -42,7 +42,7 @@ export default function LoginPage() {
 
       if (adminError) {
         await supabase.auth.signOut()
-        throw new Error('Database verification failed')
+        throw new Error(`Database verification failed: ${adminError.message} (Code: ${adminError.code})`)
       }
 
       if (!adminData) {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   BarChart,
   Bar,
@@ -58,7 +58,13 @@ export default function AnalyticsClient({
   interestsRaw,
   paymentsRaw
 }: Props) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const [timeRange, setTimeRange] = useState('6m')
+
 
   // ─── 1. Funnel Calculations (with fallback mock if database is new) ──────────
 
@@ -251,6 +257,21 @@ export default function AnalyticsClient({
   }
 
   // ─── Premium SVG District Heatmap component ───────────────────────────────
+  if (!mounted) {
+    return (
+      <div className="space-y-6 animate-pulse">
+        <div className="h-16 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="h-80 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm" />
+          <div className="h-80 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="h-80 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm" />
+          <div className="h-80 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm" />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
