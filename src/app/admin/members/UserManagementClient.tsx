@@ -45,7 +45,7 @@ interface User {
   is_mobile_verified: boolean
   is_email_verified: boolean
   last_login_at: string | null
-  last_active_at: string | null
+  last_seen_at: string | null
   created_at: string
   city_name: string | null
   district_name: string | null
@@ -128,8 +128,8 @@ export default function UserManagementClient({ users: initialUsers, plans }: Pro
       } else if (sortBy === 'score') {
         comparison = (a.profile_completion_score || 0) - (b.profile_completion_score || 0)
       } else if (sortBy === 'active') {
-        const timeA = a.last_active_at ? new Date(a.last_active_at).getTime() : 0
-        const timeB = b.last_active_at ? new Date(b.last_active_at).getTime() : 0
+        const timeA = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0
+        const timeB = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0
         comparison = timeA - timeB
       }
       return sortOrder === 'desc' ? -comparison : comparison

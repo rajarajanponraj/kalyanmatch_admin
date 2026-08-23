@@ -6,95 +6,101 @@ export const revalidate = 0
 export default async function ModerationPage() {
   const supabase = await createClient()
 
-  // 1. Pending profile photos
-  const { data: pendingPhotos } = await supabase
-    .from('profile_photos')
-    .select(`
-      id,
-      profile_id,
-      cdn_url,
-      storage_path,
-      is_cover,
-      is_private,
-      status,
-      rejection_reason,
-      uploaded_at,
-      mime_type,
-      profiles!profile_photos_profile_id_fkey(
-        user_id,
-        about_me,
-        verification_level,
-        profile_score,
-        is_visible,
-        users!profiles_user_id_fkey(
-          profile_id,
-          first_name,
-          last_name,
-          gender,
-          account_status,
-          email,
-          mobile_number,
-          created_at
-        )
-      )
-    `)
-    .eq('status', 'pending')
-    .order('uploaded_at', { ascending: true })
-    .limit(200)
-
-  // 2. New profiles pending approval (pending_profile status, created in last 30 days)
+  // Fetch data concurrently
   const thirtyDaysAgo = new Date()
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-  const { data: pendingProfiles } = await supabase
-    .from('users')
-    .select(`
-      id,
-      profile_id,
-      first_name,
-      last_name,
-      gender,
-      email,
-      mobile_number,
-      account_status,
-      profile_completion_score,
-      created_at,
-      profiles!profiles_user_id_fkey(
-        about_me,
-        verification_level,
-        profile_score,
-        is_visible,
-        is_face_verified,
-        is_id_verified
-      )
-    `)
-    .eq('account_status', 'pending_profile')
-    .gte('created_at', thirtyDaysAgo.toISOString())
-    .order('created_at', { ascending: true })
-    .limit(200)
 
-  // 3. Recently reported / flagged profiles (open reports)
-  const { data: flaggedProfiles } = await supabase
-    .from('reports')
-    .select(`
-      id,
-      report_type,
-      description,
-      status,
-      created_at,
-      reporter:users!reports_reporter_id_fkey(profile_id, first_name, last_name),
-      reported:users!reports_reported_id_fkey(
+  const [
+    { data: pendingPhotos },
+    { data: pendingProfiles },
+    { data: flaggedProfiles }
+  ] = await Promise.all([
+    // 1. Pending profile photos
+    supabase
+      .from('profile_photos')
+      .select(`
+        id,
+        profile_id,
+        cdn_url,
+        storage_path,
+        is_cover,
+        is_private,
+        status,
+        rejection_reason,
+        uploaded_at,
+        mime_type,
+        profiles!profile_photos_profile_id_fkey(
+          user_id,
+          about_me,
+          verification_level,
+          profile_score,
+          is_visible,
+          users!profiles_user_id_fkey(
+            profile_id,
+            first_name,
+            last_name,
+            gender,
+            account_status,
+            email,
+            mobile_number,
+            created_at
+          )
+        )
+      `)
+      .eq('status', 'pending')
+      .order('uploaded_at', { ascending: true })
+      .limit(200),
+    // 2. New profiles pending approval
+    supabase
+      .from('users')
+      .select(`
         id,
         profile_id,
         first_name,
         last_name,
         gender,
         email,
-        account_status
-      )
-    `)
-    .in('status', ['open', 'under_review'])
-    .order('created_at', { ascending: false })
-    .limit(100)
+        mobile_number,
+        account_status,
+        profile_completion_score,
+        created_at,
+        profiles!profiles_user_id_fkey(
+          about_me,
+          verification_level,
+          profile_score,
+          is_visible,
+          is_face_verified,
+          is_id_verified
+        )
+      `)
+      .eq('account_status', 'pending_profile')
+      .gte('created_at', thirtyDaysAgo.toISOString())
+      .order('created_at', { ascending: true })
+      .limit(200),
+    // 3. Recently reported / flagged profiles (open reports)
+    supabase
+      .from('reports')
+      .select(`
+        id,
+        report_type,
+        description,
+        status,
+        created_at,
+        reporter:users!reports_reporter_id_fkey(profile_id, first_name, last_name),
+        reported:users!reports_reported_id_fkey(
+          id,
+          profile_id,
+          first_name,
+          last_name,
+          gender,
+          email,
+          account_status
+        )
+      `)
+      .in('status', ['open', 'under_review'])
+      .order('created_at', { ascending: false })
+      .limit(100)
+  ])
 
   // Normalize
   const normalizedPhotos = (pendingPhotos ?? []).map((p: any) => ({

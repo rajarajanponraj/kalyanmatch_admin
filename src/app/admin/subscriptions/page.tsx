@@ -27,47 +27,49 @@ export default async function SubscriptionsPage() {
     redirect('/auth/login')
   }
 
-  // 3. Fetch all subscription plans
-  const { data: plans } = await supabase
-    .from('subscription_plans')
-    .select('*')
-    .order('sort_order', { ascending: true })
-
-  // 4. Fetch all user subscriptions (active/expired/cancelled)
-  const { data: subscriptionsData } = await supabase
-    .from('subscriptions')
-    .select(`
-      id,
-      user_id,
-      plan_id,
-      status,
-      started_at,
-      expires_at,
-      is_auto_renewal,
-      activated_by,
-      notes,
-      users:user_id (
-        profile_id,
-        first_name,
-        last_name,
-        email
-      ),
-      subscription_plans:plan_id (
-        name,
-        code,
-        price_inr
-      )
-    `)
-    .order('created_at', { ascending: false })
-    .limit(1000)
-
-  // 5. Fetch active users list for manual assignment dropdown search
-  const { data: activeUsers } = await supabase
-    .from('users')
-    .select('id, profile_id, first_name, last_name, email, is_premium, premium_plan_code, premium_expires_at')
-    .eq('account_status', 'active')
-    .order('first_name', { ascending: true })
-    .limit(1000)
+  // 3. Fetch data concurrently
+  const [
+    { data: plans },
+    { data: subscriptionsData },
+    { data: activeUsers }
+  ] = await Promise.all([
+    supabase
+      .from('subscription_plans')
+      .select('*')
+      .order('sort_order', { ascending: true }),
+    supabase
+      .from('subscriptions')
+      .select(`
+        id,
+        user_id,
+        plan_id,
+        status,
+        started_at,
+        expires_at,
+        is_auto_renewal,
+        activated_by,
+        notes,
+        users:user_id (
+          profile_id,
+          first_name,
+          last_name,
+          email
+        ),
+        subscription_plans:plan_id (
+          name,
+          code,
+          price_inr
+        )
+      `)
+      .order('created_at', { ascending: false })
+      .limit(1000),
+    supabase
+      .from('users')
+      .select('id, profile_id, first_name, last_name, email, is_premium, premium_plan_code, premium_expires_at')
+      .eq('account_status', 'active')
+      .order('first_name', { ascending: true })
+      .limit(1000)
+  ])
 
   // Normalize
   const normalizedSubscriptions = (subscriptionsData ?? []).map((s: any) => ({

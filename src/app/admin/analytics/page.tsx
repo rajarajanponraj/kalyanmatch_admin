@@ -27,43 +27,34 @@ export default async function AnalyticsPage() {
     redirect('/auth/login')
   }
 
-  // 3. Fetch User Funnel aggregates
-  const { count: regCount } = await supabase
-    .from('users')
-    .select('*', { count: 'exact', head: true })
+  // 3. Fetch Data Concurrently
+  const sixMonthsAgo = new Date()
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
 
-  const { count: profCount } = await supabase
-    .from('users')
-    .select('*', { count: 'exact', head: true })
-    .not('profile_id', 'is', null)
+  const [
+    { count: regCount },
+    { count: profCount },
+    { data: interestSenders },
+    { data: chatSenders },
+    { count: activeSubs },
+    { data: districtUsers },
+    { data: interests },
+    { data: payments }
+  ] = await Promise.all([
+    supabase.from('users').select('*', { count: 'exact', head: true }),
+    supabase.from('users').select('*', { count: 'exact', head: true }).not('profile_id', 'is', null),
+    supabase.from('interests').select('sender_id'),
+    supabase.from('chat_messages').select('sender_id'),
+    supabase.from('subscriptions').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+    supabase.from('users').select(`id, native_district_id, districts!users_native_district_id_fkey (name)`).not('native_district_id', 'is', null),
+    supabase.from('interests').select('sent_at, status').gte('sent_at', sixMonthsAgo.toISOString()),
+    supabase.from('payments').select('created_at, total_amount, status').eq('status', 'success').gte('created_at', sixMonthsAgo.toISOString())
+  ])
 
-  const { data: interestSenders } = await supabase
-    .from('interests')
-    .select('sender_id')
   const uniqueInterestSenders = new Set((interestSenders ?? []).map(i => i.sender_id)).size
-
-  const { data: chatSenders } = await supabase
-    .from('chat_messages')
-    .select('sender_id')
   const uniqueChatSenders = new Set((chatSenders ?? []).map(c => c.sender_id)).size
 
-  const { count: activeSubs } = await supabase
-    .from('subscriptions')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'active')
-
-  // 4. Fetch Users by District (Tamil Nadu focus)
-  const { data: districtUsers } = await supabase
-    .from('users')
-    .select(`
-      id,
-      native_district_id,
-      districts!users_native_district_id_fkey (
-        name
-      )
-    `)
-    .not('native_district_id', 'is', null)
-
+  // 4. Process District Data
   const districtCounts: Record<string, { name: string; total: number; completed: number }> = {}
   for (const row of districtUsers ?? []) {
     const distName = (row as any).districts?.name ?? 'Unknown'
@@ -76,21 +67,6 @@ export default async function AnalyticsPage() {
   const districtDistribution = Object.values(districtCounts)
     .sort((a, b) => b.total - a.total)
     .slice(0, 12)
-
-  // 5. Fetch Interest Success Rates (sent vs accepted) over time (last 6 months)
-  const sixMonthsAgo = new Date()
-  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
-  const { data: interests } = await supabase
-    .from('interests')
-    .select('sent_at, status')
-    .gte('sent_at', sixMonthsAgo.toISOString())
-
-  // 6. Fetch Revenue (payments last 6 months)
-  const { data: payments } = await supabase
-    .from('payments')
-    .select('created_at, total_amount, status')
-    .eq('status', 'success')
-    .gte('created_at', sixMonthsAgo.toISOString())
 
   return (
     <div className="space-y-6">

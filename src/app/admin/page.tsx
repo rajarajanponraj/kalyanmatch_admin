@@ -20,73 +20,51 @@ export const revalidate = 0 // Disable cache to ensure live database stats
 export default async function AdminPage() {
   const supabase = await createClient()
 
-  // 1. Fetch Users Counts
-  const { count: totalUsers } = await supabase
-    .from('users')
-    .select('*', { count: 'exact', head: true })
-
   const todayStr = new Date().toISOString().split('T')[0]
-  const { count: todayRegistrations } = await supabase
-    .from('users')
-    .select('*', { count: 'exact', head: true })
-    .gte('created_at', todayStr)
-
-  // 2. Fetch Active Subscriptions
-  const { count: activeSubscriptions } = await supabase
-    .from('subscriptions')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'active')
-
-  // 3. Fetch Revenue Stats (Total, Month, Today)
-  const { data: totalRevenueData } = await supabase
-    .from('payments')
-    .select('total_amount')
-    .eq('status', 'success')
-  const totalRevenue = totalRevenueData?.reduce((sum, p) => sum + Number(p.total_amount), 0) ?? 0
-
-  const { data: todayRevenueData } = await supabase
-    .from('payments')
-    .select('total_amount')
-    .eq('status', 'success')
-    .gte('created_at', todayStr)
-  const todayRevenue = todayRevenueData?.reduce((sum, p) => sum + Number(p.total_amount), 0) ?? 0
-
   const firstOfMonthStr = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
-  const { data: monthRevenueData } = await supabase
-    .from('payments')
-    .select('total_amount')
-    .eq('status', 'success')
-    .gte('created_at', firstOfMonthStr)
+  const sixMonthsAgo = new Date()
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5)
+  sixMonthsAgo.setDate(1)
+
+  // Execute all independent Supabase queries concurrently
+  const [
+    { count: totalUsers },
+    { count: todayRegistrations },
+    { count: activeSubscriptions },
+    { data: totalRevenueData },
+    { data: todayRevenueData },
+    { data: monthRevenueData },
+    { count: pendingVerifications },
+    { count: openReports },
+    { count: profileViewsToday },
+    { count: interestsSentToday },
+    { data: cityUsersRaw },
+    { data: planRevenueRaw },
+    { data: growthUsersRaw },
+    { data: recentActivity }
+  ] = await Promise.all([
+    supabase.from('users').select('*', { count: 'exact', head: true }),
+    supabase.from('users').select('*', { count: 'exact', head: true }).gte('created_at', todayStr),
+    supabase.from('subscriptions').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+    supabase.from('payments').select('total_amount').eq('status', 'success'),
+    supabase.from('payments').select('total_amount').eq('status', 'success').gte('created_at', todayStr),
+    supabase.from('payments').select('total_amount').eq('status', 'success').gte('created_at', firstOfMonthStr),
+    supabase.from('verification_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+    supabase.from('reports').select('*', { count: 'exact', head: true }).eq('status', 'open'),
+    supabase.from('profile_views').select('*', { count: 'exact', head: true }).gte('viewed_at', todayStr),
+    supabase.from('interests').select('*', { count: 'exact', head: true }).gte('sent_at', todayStr),
+    supabase.from('users').select('current_city_id, cities!users_current_city_id_fkey(name)').not('current_city_id', 'is', null),
+    supabase.from('payments').select('total_amount, subscription_plans!payments_plan_id_fkey(name)').eq('status', 'success'),
+    supabase.from('users').select('created_at').gte('created_at', sixMonthsAgo.toISOString()).order('created_at', { ascending: true }),
+    supabase.from('audit_logs').select('action, entity_type, actor_type, created_at').order('created_at', { ascending: false }).limit(10)
+  ])
+
+  // 3. Compute Revenue Stats
+  const totalRevenue = totalRevenueData?.reduce((sum, p) => sum + Number(p.total_amount), 0) ?? 0
+  const todayRevenue = todayRevenueData?.reduce((sum, p) => sum + Number(p.total_amount), 0) ?? 0
   const monthRevenue = monthRevenueData?.reduce((sum, p) => sum + Number(p.total_amount), 0) ?? 0
 
-  // 4. Fetch Action Queue Counts
-  const { count: pendingVerifications } = await supabase
-    .from('verification_requests')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'pending')
-
-  const { count: openReports } = await supabase
-    .from('reports')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'open')
-
-  // 5. Fetch Daily Activity Analytics
-  const { count: profileViewsToday } = await supabase
-    .from('profile_views')
-    .select('*', { count: 'exact', head: true })
-    .gte('viewed_at', todayStr)
-
-  const { count: interestsSentToday } = await supabase
-    .from('interests')
-    .select('*', { count: 'exact', head: true })
-    .gte('sent_at', todayStr)
-
-  // 6. Top Performing Cities — count users grouped by current_city_id
-  const { data: cityUsersRaw } = await supabase
-    .from('users')
-    .select('current_city_id, cities!users_current_city_id_fkey(name)')
-    .not('current_city_id', 'is', null)
-
+  // 6. Top Performing Cities
   const cityCounts: Record<string, { name: string; count: number }> = {}
   for (const row of cityUsersRaw ?? []) {
     const cityName = (row as any).cities?.name ?? 'Unknown'
@@ -99,12 +77,7 @@ export default async function AdminPage() {
     .sort((a, b) => b.count - a.count)
     .slice(0, 8)
 
-  // 7. Revenue by Plan — aggregate payments joined with subscription_plans
-  const { data: planRevenueRaw } = await supabase
-    .from('payments')
-    .select('total_amount, subscription_plans!payments_plan_id_fkey(name)')
-    .eq('status', 'success')
-
+  // 7. Revenue by Plan
   const planRevenueCounts: Record<string, number> = {}
   for (const row of planRevenueRaw ?? []) {
     const planName = (row as any).subscription_plans?.name ?? 'Other'
@@ -115,16 +88,7 @@ export default async function AdminPage() {
     revenue,
   }))
 
-  // 8. User Growth — users created per month for last 6 months
-  const sixMonthsAgo = new Date()
-  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5)
-  sixMonthsAgo.setDate(1)
-  const { data: growthUsersRaw } = await supabase
-    .from('users')
-    .select('created_at')
-    .gte('created_at', sixMonthsAgo.toISOString())
-    .order('created_at', { ascending: true })
-
+  // 8. User Growth
   const monthlyGrowth: Record<string, number> = {}
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   // Pre-populate last 6 months
@@ -142,13 +106,6 @@ export default async function AdminPage() {
     }
   }
   const userGrowthData = Object.entries(monthlyGrowth).map(([month, users]) => ({ month, users }))
-
-  // 9. Recent Activity Feed — latest audit logs
-  const { data: recentActivity } = await supabase
-    .from('audit_logs')
-    .select('action, entity_type, actor_type, created_at')
-    .order('created_at', { ascending: false })
-    .limit(10)
 
   // Format Helper
   const formatCurrency = (val: number) => {
